@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 
+#
+# TODO:
+# - stealing
+# - defense
+# - gold/silver wild
+#
+
 import collections
 import enum
 import functools
 import itertools
-import operator
+import operator as op
 import random
+import typing
+
 
 #
 # Labels don't really matter, but helpful for debugging.
@@ -71,11 +80,27 @@ class Player:
     def hand_cards(self):
         return itertools.chain(*self.hand.values())
 
+    def wild_cards(self):
+        return itertools.chain(self.hand[AssetKind.SILVER], self.hand[AssetKind.GOLD])
+
+    # TODO: staticmethod
+    def reject_wild(self, cards):
+        return itertools.filterfalse(op.methodcaller('is_wild'), cards)
+
+    def top_asset(self) -> Card:
+        if self.assets:
+            card = next(self.reject_wild(self.assets[-1]), None)
+            assert card, str(self.assets[-1])
+            return card
+
+    def steal_from(self) -> typing.List[Card]:
+        return self.assets.pop()
+
     def replenish(self, game):
         while len(list(self.hand_cards())) < HAND_SIZE and game.deck:
             self.deal(game.deck.pop())
 
-    def total(self):
+    def total(self) -> int:
         return sum(map(lambda c: c.value, itertools.chain(*self.assets)))
 
     #
@@ -83,37 +108,65 @@ class Player:
     #
     def turn(self, game):
         hand = list(map(str, self.hand_cards()))
-        print("%s hand %s, %s" % (self, hand, game.discard_top()))
+        print("%s hand %s; discard: %s" % (self, hand, game.discard_top()))
         if not any(self.hand_cards()):
             return False
 
         match = None
 
-        # First match in hand.
+        # Check for discard wild.
+
+        # First natural match in hand.
         for k, l in self.hand.items():
-            if len(l) > 1:
+            if len(l) > 1 and not l[0].is_wild():
                 match = [l.pop(), l.pop()]
-                print(f"Play {match} from hand")
+                print(f"\tPlay {match} from hand")
                 break
 
         # Next check discard.
         if not match:
             d = game.discard_top()
-            if d and self.hand[d.kind]:
+            if d and self.hand[d.kind] and not self.hand[d.kind][0].is_wild():
                 match = [game.discard.pop(), self.hand[d.kind].pop()]
-                print(f"Play {match} using discard")
+                print(f"\tPlay {match} using discard")
 
         # Consider stealing.
+        if not match:
+            candidates = [p for p in game.players if p.top_asset() and self.hand[p.top_asset().kind]]
+            if candidates:
+                other = max(candidates, key=lambda p: p.top_asset().value)
+                card = other.top_asset()
+                match = other.steal_from()
+                match.append(self.hand[card.kind].pop())
+                print(f"\tSteal {match} from {other}")
+
+        # Use wild
+        if not match:
+            wild = next(self.wild_cards(), None)
+            if wild:
+                # Make pair from top asset in hand and discard.
+                cards = list(self.hand_cards())
+                if game.discard_top():
+                    cards.append(game.discard_top())
+                cards = list(self.reject_wild(cards))
+                if cards:
+                    best = max(cards, key=op.attrgetter('value'))
+                    match = [self.hand[wild.kind].pop()] 
+                    if self.hand[best.kind]:
+                        match.append(self.hand[best.kind].pop())
+                    else:
+                        match.append(game.discard.pop())
+                    print(f"\tPlay {match} using wild")
 
         if match:
             self.assets.append(match)
         elif any(self.hand_cards()):
             c = min(self.hand_cards(), key=lambda c: c.value)
             c = self.hand[c.kind].pop()
-            print(f"Discard {c}")
+            print(f"\tDiscard {c}")
             game.discard.append(c)
 
-        print("%s stack %s" % (self, self.assets))
+        print("\t%s stack %s" % (self, self.assets))
         self.replenish(game)
         return True
 
@@ -121,7 +174,7 @@ class Game:
 
     def __init__(self, n_players=5):
         sets = [list(itertools.repeat(Card(k, amt), n)) for k, amt, n in CARDS]
-        self.deck = functools.reduce(operator.add, sets)
+        self.deck = functools.reduce(op.add, sets)
         random.shuffle(self.deck)
         self.discard = []
         self.players = [Player(i) for i in range(n_players)]
@@ -131,7 +184,7 @@ class Game:
             for p in self.players:
                 p.deal(self.deck.pop())
 
-    def discard_top(self):
+    def discard_top(self) -> Card:
         if self.discard:
             return self.discard[-1]
 
@@ -139,8 +192,11 @@ class Game:
         self.deal_hands()
         self.discard.append(self.deck.pop())
         while True:
-            if not any(p.turn(self) for p in self.players):
+            played = [p.turn(self) for p in self.players]
+            #print(played)
+            if not any(played):
                 break
+            #print(list(map(list, map(op.methodcaller('hand_cards'), self.players))))
         s = sum(map(lambda c: c.value, self.discard))
         print(f"Discard pile {s}")
         for p in self.players:

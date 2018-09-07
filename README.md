@@ -71,3 +71,8 @@ We will start by simplifying the strategies using some parameters.
     * Always steal if possible.
 
 ## Installation
+
+## TODO: 
+
+* PyLint
+* PyUnit
