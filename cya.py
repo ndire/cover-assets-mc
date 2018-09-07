@@ -20,8 +20,8 @@ import typing
 # Labels don't really matter, but helpful for debugging.
 #
 AssetKind = enum.Enum('AssetKind', [
-    'GOLD', 'SILVER', 
-    'HOUSE', 'BASEBALL', 'JEWEWLS', 'BANK', 
+    'GOLD', 'SILVER',
+    'HOUSE', 'BASEBALL', 'JEWEWLS', 'BANK',
     'CARS', 'COINS', 'CASH', 'STOCKS', 'PIGGY', 'STAMPS'
 ])
 
@@ -30,7 +30,7 @@ CARDS = [
     (AssetKind.SILVER, 25, 8),
     (AssetKind.HOUSE, 20, 8),
     (AssetKind.JEWEWLS, 15, 10),
-    (AssetKind.CARS,15, 10),
+    (AssetKind.CARS, 15, 10),
     (AssetKind.STOCKS, 10, 10),
     (AssetKind.BANK, 10, 10),
     (AssetKind.COINS, 10, 10),
@@ -83,8 +83,8 @@ class Player:
     def wild_cards(self):
         return itertools.chain(self.hand[AssetKind.SILVER], self.hand[AssetKind.GOLD])
 
-    # TODO: staticmethod
-    def reject_wild(self, cards):
+    @staticmethod
+    def reject_wild(cards):
         return itertools.filterfalse(op.methodcaller('is_wild'), cards)
 
     def top_asset(self) -> Card:
@@ -117,7 +117,7 @@ class Player:
         # Check for discard wild.
 
         # First natural match in hand.
-        for k, l in self.hand.items():
+        for _, l in self.hand.items():
             if len(l) > 1 and not l[0].is_wild():
                 match = [l.pop(), l.pop()]
                 print(f"\tPlay {match} from hand")
@@ -132,7 +132,8 @@ class Player:
 
         # Consider stealing.
         if not match:
-            candidates = [p for p in game.players if p.top_asset() and self.hand[p.top_asset().kind]]
+            candidates = [p for p in game.players 
+                          if p.top_asset() and self.hand[p.top_asset().kind]]
             if candidates:
                 other = max(candidates, key=lambda p: p.top_asset().value)
                 card = other.top_asset()
@@ -151,7 +152,7 @@ class Player:
                 cards = list(self.reject_wild(cards))
                 if cards:
                     best = max(cards, key=op.attrgetter('value'))
-                    match = [self.hand[wild.kind].pop()] 
+                    match = [self.hand[wild.kind].pop()]
                     if self.hand[best.kind]:
                         match.append(self.hand[best.kind].pop())
                     else:
@@ -180,7 +181,7 @@ class Game:
         self.players = [Player(i) for i in range(n_players)]
 
     def deal_hands(self):
-        for i in range(HAND_SIZE):
+        for _ in range(HAND_SIZE):
             for p in self.players:
                 p.deal(self.deck.pop())
 
@@ -206,5 +207,5 @@ class Game:
         print(s)
 
 if __name__ == "__main__":
-    game = Game()
-    game.play()
+    gm = Game()
+    gm.play()
