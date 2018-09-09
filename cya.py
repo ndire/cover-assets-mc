@@ -2,9 +2,8 @@
 
 #
 # TODO:
-# - stealing
+# - Fix wild strategy
 # - defense
-# - gold/silver wild
 #
 
 import collections
@@ -87,7 +86,7 @@ class Player:
     def reject_wild(cards):
         return itertools.filterfalse(op.methodcaller('is_wild'), cards)
 
-    def top_asset(self) -> Card:
+    def available_asset(self) -> Card:
         if self.assets:
             card = next(self.reject_wild(self.assets[-1]), None)
             assert card, str(self.assets[-1])
@@ -123,7 +122,7 @@ class Player:
                 print(f"\tPlay {match} from hand")
                 break
 
-        # Next check discard.
+        # Next natural match discard.
         if not match:
             d = game.discard_top()
             if d and self.hand[d.kind] and not self.hand[d.kind][0].is_wild():
@@ -133,10 +132,10 @@ class Player:
         # Consider stealing.
         if not match:
             candidates = [p for p in game.players 
-                          if p.top_asset() and self.hand[p.top_asset().kind]]
+                          if p.available_asset() and self.hand[p.available_asset().kind]]
             if candidates:
-                other = max(candidates, key=lambda p: p.top_asset().value)
-                card = other.top_asset()
+                other = max(candidates, key=lambda p: p.available_asset().value)
+                card = other.available_asset()
                 match = other.steal_from()
                 match.append(self.hand[card.kind].pop())
                 print(f"\tSteal {match} from {other}")
