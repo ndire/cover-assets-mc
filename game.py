@@ -4,6 +4,7 @@
 # TODO:
 # - Fix wild strategy
 # - defense
+# - Asset match kind
 #
 
 import collections
@@ -76,21 +77,51 @@ class Player:
     def __str__(self):
         return "Player " + str(self.player_id)
 
+    def total_assets(self) -> int:
+        return sum(map(lambda c: c.value, itertools.chain(*self.assets)))
+
     def hand_cards(self):
         return itertools.chain(*self.hand.values())
 
     def wild_cards(self):
         return itertools.chain(self.hand[AssetKind.SILVER], self.hand[AssetKind.GOLD])
 
-    @staticmethod
-    def reject_wild(cards):
-        return itertools.filterfalse(op.methodcaller('is_wild'), cards)
-
     def available_asset(self) -> Card:
         if self.assets:
             card = next(self.reject_wild(self.assets[-1]), None)
             assert card, str(self.assets[-1])
-            return card
+            return (card.kind, sum(c.value for c in self.assets[-1]))
+        return None
+
+    @staticmethod
+    def hand_match(hand, wild=False):
+        for k, l in hand.items():
+            if len(l) > 1 and (wild or not l[0].is_wild()):
+                return k
+        return None
+
+    @staticmethod
+    def discard_match(game, hand, wild=False):
+        d = game.discard_top()
+        if d and hand[d.kind] and (wild or not hand[d.kind][0].is_wild()):
+            return d.kind
+        return None
+
+    @staticmethod
+    def steal_match(game, hand):
+        candidates = [p for p in game.players 
+                      if p.available_asset() and hand[p.available_asset()[0]]]
+        if candidates:
+            return max(candidates, key=lambda p: p.available_asset()[1])
+        return None
+
+    @staticmethod
+    def reject_wild(cards):
+        return itertools.filterfalse(op.methodcaller('is_wild'), cards)
+
+    #
+    # Actions
+    # 
 
     def steal_from(self) -> typing.List[Card]:
         return self.assets.pop()
@@ -98,9 +129,6 @@ class Player:
     def replenish(self, game):
         while len(list(self.hand_cards())) < HAND_SIZE and game.deck:
             self.deal(game.deck.pop())
-
-    def total(self) -> int:
-        return sum(map(lambda c: c.value, itertools.chain(*self.assets)))
 
     #
     # TODO: make this rule based
@@ -116,29 +144,26 @@ class Player:
         # Check for discard wild.
 
         # First natural match in hand.
-        for _, l in self.hand.items():
-            if len(l) > 1 and not l[0].is_wild():
-                match = [l.pop(), l.pop()]
-                print(f"\tPlay {match} from hand")
-                break
+        kind = self.hand_match(self.hand)
+        if kind:
+            match = [self.hand[kind].pop(), self.hand[kind].pop()]
+            print(f"\tPlay {match} from hand")
 
         # Next natural match discard.
         if not match:
-            d = game.discard_top()
-            if d and self.hand[d.kind] and not self.hand[d.kind][0].is_wild():
-                match = [game.discard.pop(), self.hand[d.kind].pop()]
+            kind = self.discard_match(game, self.hand)
+            if kind:
+                match = [game.discard.pop(), self.hand[kind].pop()]
                 print(f"\tPlay {match} using discard")
 
         # Consider stealing.
         if not match:
-            candidates = [p for p in game.players 
-                          if p.available_asset() and self.hand[p.available_asset().kind]]
-            if candidates:
-                other = max(candidates, key=lambda p: p.available_asset().value)
-                card = other.available_asset()
+            other = self.steal_match(game, self.hand)
+            if other:
+                kind = other.available_asset()[0]
                 match = other.steal_from()
-                match.append(self.hand[card.kind].pop())
                 print(f"\tSteal {match} from {other}")
+                match.append(self.hand[kind].pop())
 
         # Use wild
         if not match:
@@ -200,7 +225,7 @@ class Game:
         s = sum(map(lambda c: c.value, self.discard))
         print(f"Discard pile {s}")
         for p in self.players:
-            t = p.total()
+            t = p.total_assets()
             print(f"{p}: {t}")
             s += t
         print(s)

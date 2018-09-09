@@ -8,4 +8,4 @@ lint:
 	pylint cya.py
 
 run:
-	./cya.py
+	./game.py
