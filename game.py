@@ -5,6 +5,7 @@
 # - Fix wild strategy
 # - defense
 # - Asset match kind
+# - Fix reject_wild, is_wild
 #
 
 import collections
@@ -64,6 +65,105 @@ class Card:
         return str(self)
 
 
+class Action:
+    """
+    Encapsulates player's possible actions, to use with a given strategy.
+    """
+
+    def __init__(self, game, player, use_wild=False):
+        self.game = game
+        self.player = player
+        self.use_wild = use_wild
+
+    def evaluate(self):
+        pass
+
+    def value(self):
+        pass
+
+    def execute(self):
+        pass
+
+
+class StealAction(Action):
+
+    def evaluate(self):
+        self.other = None
+        candidates = [p for p in self.game.players 
+                      if p.available_asset() and 
+                      p != self.player and
+                      (self.player.hand[p.available_asset()[0]] or self.use_wild)]
+        if candidates:
+            self.other = max(candidates, key=lambda p: p.available_asset()[1])
+            return True
+        return False
+
+    def value(self):
+        return self.other.available_asset()[1]
+
+    def execute(self):
+        kind = self.other.available_asset()[0]
+        match = self.other.steal_from()
+        print(f"\tSteal {match} from {self.other}")
+        match.append(self.player.hand[kind].pop())
+        return match
+
+
+class MatchHandAction(Action):
+
+    def evaluate(self):
+        self.pairs = []
+        for k, l in self.player.hand.items():
+            if not l or l[0].is_wild():
+                continue
+            if len(l) > 1:
+                self.pairs.append(l[0:2])
+            elif self.use_wild and any(self.player.wild_cards()):
+                self.pairs.append([l[0], next(self.player_wild_cards())])
+        return len(self.pairs) > 0
+
+    def pairs_by_value(self):
+        return map(lambda cs: (sum(map(op.attrgetter('value'), cs)), cs), self.pairs)
+
+    def value(self):
+        return max(self.pairs_by_value(), key=op.itemgetter(0))[0]
+
+    def execute(self):
+        pair = max(self.pairs_by_value(), key=op.itemgetter(0))[1]
+        print(pair)
+        card = next(Player.reject_wild(pair))
+        match = [self.player.hand[card.kind].pop(), self.player.hand[card.kind].pop()]
+        print(f"\tPlay {match} from hand")
+        return match
+
+
+class MatchDiscardAction(Action):
+
+    def evaluate(self):
+        d = self.game.discard_top()
+        self.kind = None
+        if d:
+            if d.is_wild():
+                eligible = list(self.player.reject_wild(self.player.hand_cards()))
+                if any(eligible):
+                    card = max(eligible, key=op.attrgetter('value'))
+                    if card:
+                        self.kind = card.kind
+            elif self.player.hand[d.kind]:
+                self.kind = d.kind
+            elif self.use_wild and any(self.player.wild_cards()):
+                self.kind = next(self.player.wild_cards()).kind
+        return bool(self.kind)
+
+    def value(self):
+        return self.game.discard_top().value + self.player.hand[self.kind][0].value
+
+    def execute(self):
+        match = [self.game.discard.pop(), self.player.hand[self.kind].pop()]
+        print(f"\tPlay {match} using discard")
+        return match
+
+
 class Player:
 
     def __init__(self, player_id):
@@ -93,27 +193,6 @@ class Player:
             return (card.kind, sum(c.value for c in self.assets[-1]))
         return None
 
-    @staticmethod
-    def hand_match(hand, wild=False):
-        for k, l in hand.items():
-            if len(l) > 1 and (wild or not l[0].is_wild()):
-                return k
-        return None
-
-    @staticmethod
-    def discard_match(game, hand, wild=False):
-        d = game.discard_top()
-        if d and hand[d.kind] and (wild or not hand[d.kind][0].is_wild()):
-            return d.kind
-        return None
-
-    @staticmethod
-    def steal_match(game, hand):
-        candidates = [p for p in game.players 
-                      if p.available_asset() and hand[p.available_asset()[0]]]
-        if candidates:
-            return max(candidates, key=lambda p: p.available_asset()[1])
-        return None
 
     @staticmethod
     def reject_wild(cards):
@@ -141,47 +220,14 @@ class Player:
 
         match = None
 
-        # Check for discard wild.
-
-        # First natural match in hand.
-        kind = self.hand_match(self.hand)
-        if kind:
-            match = [self.hand[kind].pop(), self.hand[kind].pop()]
-            print(f"\tPlay {match} from hand")
-
-        # Next natural match discard.
-        if not match:
-            kind = self.discard_match(game, self.hand)
-            if kind:
-                match = [game.discard.pop(), self.hand[kind].pop()]
-                print(f"\tPlay {match} using discard")
-
-        # Consider stealing.
-        if not match:
-            other = self.steal_match(game, self.hand)
-            if other:
-                kind = other.available_asset()[0]
-                match = other.steal_from()
-                print(f"\tSteal {match} from {other}")
-                match.append(self.hand[kind].pop())
-
-        # Use wild
-        if not match:
-            wild = next(self.wild_cards(), None)
-            if wild:
-                # Make pair from top asset in hand and discard.
-                cards = list(self.hand_cards())
-                if game.discard_top():
-                    cards.append(game.discard_top())
-                cards = list(self.reject_wild(cards))
-                if cards:
-                    best = max(cards, key=op.attrgetter('value'))
-                    match = [self.hand[wild.kind].pop()]
-                    if self.hand[best.kind]:
-                        match.append(self.hand[best.kind].pop())
-                    else:
-                        match.append(game.discard.pop())
-                    print(f"\tPlay {match} using wild")
+        #
+        # Enumerate actions.
+        #
+        actions = [cls(game, self) for cls in [MatchHandAction, MatchDiscardAction, StealAction]]
+        available = [a for a in actions if a.evaluate()]
+        if available:
+            choice = max(available, key=op.methodcaller('value'))
+            match = choice.execute()
 
         if match:
             self.assets.append(match)
