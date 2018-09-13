@@ -92,7 +92,8 @@ class StealAction(Action):
         candidates = [p for p in self.game.players 
                       if p.available_asset() and 
                       p != self.player and
-                      (self.player.hand[p.available_asset()[0]] or self.use_wild)]
+                      (self.player.hand[p.available_asset()[0]] or 
+                       (self.use_wild and any(self.player.wild_cards())))]
         if candidates:
             self.other = max(candidates, key=lambda p: p.available_asset()[1])
             return True
@@ -105,7 +106,12 @@ class StealAction(Action):
         kind = self.other.available_asset()[0]
         match = self.other.steal_from()
         print(f"\tSteal {match} from {self.other}")
-        match.append(self.player.hand[kind].pop())
+        if self.player.hand[kind]:
+            card = self.player.hand[kind].pop()
+        else:
+            card = next(self.player.wild_cards())
+            card = self.player.hand[card.kind].pop()
+        match.append(card)
         return match
 
 
@@ -119,7 +125,7 @@ class MatchHandAction(Action):
             if len(l) > 1:
                 self.pairs.append(l[0:2])
             elif self.use_wild and any(self.player.wild_cards()):
-                self.pairs.append([l[0], next(self.player_wild_cards())])
+                self.pairs.append([l[0], next(self.player.wild_cards())])
         return len(self.pairs) > 0
 
     def pairs_by_value(self):
@@ -130,9 +136,7 @@ class MatchHandAction(Action):
 
     def execute(self):
         pair = max(self.pairs_by_value(), key=op.itemgetter(0))[1]
-        print(pair)
-        card = next(Player.reject_wild(pair))
-        match = [self.player.hand[card.kind].pop(), self.player.hand[card.kind].pop()]
+        match = [self.player.hand[card.kind].pop() for card in pair]
         print(f"\tPlay {match} from hand")
         return match
 
@@ -184,7 +188,8 @@ class Player:
         return itertools.chain(*self.hand.values())
 
     def wild_cards(self):
-        return itertools.chain(self.hand[AssetKind.SILVER], self.hand[AssetKind.GOLD])
+        return itertools.chain(self.hand.get(AssetKind.SILVER, []), 
+                               self.hand.get(AssetKind.GOLD, []))
 
     def available_asset(self) -> Card:
         if self.assets:
@@ -223,11 +228,14 @@ class Player:
         #
         # Enumerate actions.
         #
-        actions = [cls(game, self) for cls in [MatchHandAction, MatchDiscardAction, StealAction]]
-        available = [a for a in actions if a.evaluate()]
-        if available:
-            choice = max(available, key=op.methodcaller('value'))
-            match = choice.execute()
+        for wild in [False, True]:
+            actions = [cls(game, self, wild) for cls 
+                       in [MatchHandAction, MatchDiscardAction, StealAction]]
+            available = [a for a in actions if a.evaluate()]
+            if available:
+                choice = max(available, key=op.methodcaller('value'))
+                match = choice.execute()
+                break
 
         if match:
             self.assets.append(match)
