@@ -2,10 +2,10 @@
 
 #
 # TODO:
-# - Fix wild strategy
 # - defense
 # - Asset match kind
 # - Fix reject_wild, is_wild
+# - Evaluate return on wild
 #
 
 import collections
@@ -104,14 +104,20 @@ class StealAction(Action):
 
     def execute(self):
         kind = self.other.available_asset()[0]
-        match = self.other.steal_from()
-        print(f"\tSteal {match} from {self.other}")
-        if self.player.hand[kind]:
-            card = self.player.hand[kind].pop()
-        else:
-            card = next(self.player.wild_cards())
-            card = self.player.hand[card.kind].pop()
-        match.append(card)
+        print(f"\tSteal {kind} from {self.other}")
+        match = None
+        while True:
+            card = None
+            if self.player.hand[kind]:
+                card = self.player.hand[kind].pop()
+            elif any(self.player.wild_cards()):
+                card = next(self.player.wild_cards())
+            if card is None:
+                break
+            if not self.other.defend(card):
+                match = self.other.steal_from()
+                break
+
         return match
 
 
@@ -191,13 +197,15 @@ class Player:
         return itertools.chain(self.hand.get(AssetKind.SILVER, []), 
                                self.hand.get(AssetKind.GOLD, []))
 
+    def can_steal(self):
+        return len(self.assets) > 1
+
     def available_asset(self) -> Card:
-        if self.assets:
+        if self.can_steal():
             card = next(self.reject_wild(self.assets[-1]), None)
             assert card, str(self.assets[-1])
             return (card.kind, sum(c.value for c in self.assets[-1]))
         return None
-
 
     @staticmethod
     def reject_wild(cards):
@@ -206,6 +214,27 @@ class Player:
     #
     # Actions
     # 
+
+    def defend(self, acard):
+        a = self.available_asset()
+        assert a
+        k, v = a
+        self.assets[-1].append(acard)
+
+        #
+        # Find a card to defend
+        # TODO: policy.  Don't use gold to defend low value.
+        #
+        dcard = None
+        if self.hand[k]:
+            dcard = self.hand[k].pop()
+        elif any(self.wild_cards()):
+            wild = next(self.wild_cards())
+            dcard = self.hand[wild.kind].pop()
+        if dcard:
+            self.assets[-1].append(dcard)
+            return True
+        return False
 
     def steal_from(self) -> typing.List[Card]:
         return self.assets.pop()
@@ -228,9 +257,12 @@ class Player:
         #
         # Enumerate actions.
         #
+        possible = [MatchHandAction, MatchDiscardAction]
+        if self.can_steal():
+            possible.append(StealAction)
         for wild in [False, True]:
             actions = [cls(game, self, wild) for cls 
-                       in [MatchHandAction, MatchDiscardAction, StealAction]]
+                       in possible]
             available = [a for a in actions if a.evaluate()]
             if available:
                 choice = max(available, key=op.methodcaller('value'))
