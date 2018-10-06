@@ -2,7 +2,6 @@
 
 #
 # TODO:
-# - defense
 # - Asset match kind
 # - Fix reject_wild, is_wild
 # - Evaluate return on wild
@@ -27,6 +26,7 @@ AssetKind = enum.Enum('AssetKind', [
 ])
 
 CARDS = [
+    # Kind, value, count
     (AssetKind.GOLD, 50, 4),
     (AssetKind.SILVER, 25, 8),
     (AssetKind.HOUSE, 20, 8),
@@ -110,8 +110,10 @@ class StealAction(Action):
             card = None
             if self.player.hand[kind]:
                 card = self.player.hand[kind].pop()
-            elif any(self.player.wild_cards()):
-                card = next(self.player.wild_cards())
+            else:
+                wild = next(self.player.wild_cards(), None)
+                if wild:
+                    card = self.player.hand[wild.kind].pop()
             if card is None:
                 break
             if not self.other.defend(card):
@@ -188,7 +190,10 @@ class Player:
         return "Player " + str(self.player_id)
 
     def total_assets(self) -> int:
-        return sum(map(lambda c: c.value, itertools.chain(*self.assets)))
+        return sum(map(lambda c: c.value, self.asset_cards()))
+
+    def asset_cards(self) -> typing.List:
+        return itertools.chain(*self.assets)
 
     def hand_cards(self):
         return itertools.chain(*self.hand.values())
@@ -302,19 +307,27 @@ class Game:
     def play(self):
         self.deal_hands()
         self.discard.append(self.deck.pop())
+
         while True:
             played = [p.turn(self) for p in self.players]
             #print(played)
             if not any(played):
                 break
             #print(list(map(list, map(op.methodcaller('hand_cards'), self.players))))
+
         s = sum(map(lambda c: c.value, self.discard))
-        print(f"Discard pile {s}")
+        print(f"Discard pile {s} ({self.discard})")
         for p in self.players:
             t = p.total_assets()
             print(f"{p}: {t}")
             s += t
-        print(s)
+
+        assert(s == 1360, s)
+
+        # Make sure we didn't lose any cards
+        c = sum([len(list(p.asset_cards())) for p in self.players]) + len(self.discard)
+        assert(c == 110, c)
+
 
 if __name__ == "__main__":
     gm = Game()
