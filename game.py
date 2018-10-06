@@ -56,7 +56,7 @@ class Card:
         return self.kind.name
 
     def __eq__(self, other):
-        return self.kind == other.kind
+        return type(self) == type(other) and self.kind == other.kind
 
     def __hash__(self):
         return hash(self.kind)
@@ -207,6 +207,7 @@ class Player:
 
     def available_asset(self) -> Card:
         if self.can_steal():
+            assert None not in self.assets[-1]
             card = next(self.reject_wild(self.assets[-1]), None)
             assert card, str(self.assets[-1])
             return (card.kind, sum(c.value for c in self.assets[-1]))
@@ -219,7 +220,6 @@ class Player:
     #
     # Actions
     # 
-
     def defend(self, acard):
         a = self.available_asset()
         assert a
@@ -248,17 +248,7 @@ class Player:
         while len(list(self.hand_cards())) < HAND_SIZE and game.deck:
             self.deal(game.deck.pop())
 
-    #
-    # TODO: make this rule based
-    #
-    def turn(self, game):
-        hand = list(map(str, self.hand_cards()))
-        print("%s hand %s; discard: %s" % (self, hand, game.discard_top()))
-        if not any(self.hand_cards()):
-            return False
-
-        match = None
-
+    def play_card(self, game):
         #
         # Enumerate actions.
         #
@@ -272,19 +262,35 @@ class Player:
             if available:
                 choice = max(available, key=op.methodcaller('value'))
                 match = choice.execute()
-                break
+                if match:
+                    self.assets.append(match)
+                return True
+        return False
 
-        if match:
-            self.assets.append(match)
-        elif any(self.hand_cards()):
+
+    def discard(self, game):
+        # TODO: be more intelligent about discard.
+        if any(self.hand_cards()):
             c = min(self.hand_cards(), key=lambda c: c.value)
             c = self.hand[c.kind].pop()
             print(f"\tDiscard {c}")
             game.discard.append(c)
 
+
+    def turn(self, game):
+        hand = list(map(str, self.hand_cards()))
+        print("%s hand %s; discard: %s" % (self, hand, game.discard_top()))
+        if not any(self.hand_cards()):
+            return False
+
+        played = self.play_card(game)
+        if not played:
+            self.discard(game)
+
         print("\t%s stack %s" % (self, self.assets))
         self.replenish(game)
         return True
+
 
 class Game:
 
