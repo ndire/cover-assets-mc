@@ -2,6 +2,7 @@
 
 #
 # TODO:
+# - logging
 # - Asset match kind
 # - Fix reject_wild, is_wild
 # - Evaluate return on wild
@@ -292,9 +293,13 @@ class Player:
         return True
 
 
+def GreedyPlayer(Player):
+    pass
+
+
 class Game:
 
-    def __init__(self, n_players=5):
+    def __init__(self, n_players=5, verbose=False):
         sets = [list(itertools.repeat(Card(k, amt), n)) for k, amt, n in CARDS]
         self.deck = functools.reduce(op.add, sets)
         random.shuffle(self.deck)
@@ -334,7 +339,9 @@ class Game:
         c = sum([len(list(p.asset_cards())) for p in self.players]) + len(self.discard)
         assert(c == 110, c)
 
+        return {p.player_id : p.total_assets() for p in self.players}
+
 
 if __name__ == "__main__":
-    gm = Game()
+    gm = Game(verbose=True)
     gm.play()
