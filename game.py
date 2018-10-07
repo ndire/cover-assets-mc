@@ -12,6 +12,7 @@ import collections
 import enum
 import functools
 import itertools
+import logging
 import operator as op
 import random
 import typing
@@ -105,7 +106,7 @@ class StealAction(Action):
 
     def execute(self):
         kind = self.other.available_asset()[0]
-        print(f"\tSteal {kind} from {self.other}")
+        logging.info(f"\tSteal {kind} from {self.other}")
         match = None
         while True:
             card = None
@@ -146,7 +147,7 @@ class MatchHandAction(Action):
     def execute(self):
         pair = max(self.pairs_by_value(), key=op.itemgetter(0))[1]
         match = [self.player.hand[card.kind].pop() for card in pair]
-        print(f"\tPlay {match} from hand")
+        logging.info(f"\tPlay {match} from hand")
         return match
 
 
@@ -173,7 +174,7 @@ class MatchDiscardAction(Action):
 
     def execute(self):
         match = [self.game.discard.pop(), self.player.hand[self.kind].pop()]
-        print(f"\tPlay {match} using discard")
+        logging.info(f"\tPlay {match} using discard")
         return match
 
 
@@ -274,13 +275,13 @@ class Player:
         if any(self.hand_cards()):
             c = min(self.hand_cards(), key=lambda c: c.value)
             c = self.hand[c.kind].pop()
-            print(f"\tDiscard {c}")
+            logging.info(f"\tDiscard {c}")
             game.discard.append(c)
 
 
     def turn(self, game):
         hand = list(map(str, self.hand_cards()))
-        print("%s hand %s; discard: %s" % (self, hand, game.discard_top()))
+        logging.info("%s hand %s; discard: %s" % (self, hand, game.discard_top()))
         if not any(self.hand_cards()):
             return False
 
@@ -288,7 +289,7 @@ class Player:
         if not played:
             self.discard(game)
 
-        print("\t%s stack %s" % (self, self.assets))
+        logging.info("\t%s stack %s" % (self, self.assets))
         self.replenish(game)
         return True
 
@@ -305,6 +306,7 @@ class Game:
         random.shuffle(self.deck)
         self.discard = []
         self.players = [Player(i) for i in range(n_players)]
+        random.shuffle(self.players)
 
     def deal_hands(self):
         for _ in range(HAND_SIZE):
@@ -321,27 +323,26 @@ class Game:
 
         while True:
             played = [p.turn(self) for p in self.players]
-            #print(played)
             if not any(played):
                 break
-            #print(list(map(list, map(op.methodcaller('hand_cards'), self.players))))
 
         s = sum(map(lambda c: c.value, self.discard))
-        print(f"Discard pile {s} ({self.discard})")
+        logging.info(f"Discard pile {s} ({self.discard})")
         for p in self.players:
             t = p.total_assets()
-            print(f"{p}: {t}")
+            logging.info(f"{p}: {t}")
             s += t
 
-        assert(s == 1360, s)
+        assert s == 1360, s
 
         # Make sure we didn't lose any cards
         c = sum([len(list(p.asset_cards())) for p in self.players]) + len(self.discard)
-        assert(c == 110, c)
+        assert c == 110, c
 
         return {p.player_id : p.total_assets() for p in self.players}
 
 
 if __name__ == "__main__":
-    gm = Game(verbose=True)
+    logging.basicConfig(format='%(message)s', level=logging.INFO)
+    gm = Game()
     gm.play()
